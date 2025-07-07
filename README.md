@@ -11,7 +11,8 @@
     🌐 Available in:
     <a href="README.ko.md">한국어 (Korean)</a> |
     <a href="README.ja.md">日本語 (Japanese)</a> |
-    <a href="README.zh.md">中文 (Chinese)</a>
+    <a href="README.zh-cn.md">简体中文 (Simplified Chinese)</a> |
+    <a href="README.zh-tw.md">繁體中文 (Traditional Chinese)</a>
   </p>
   <h3>Give your coding agent access to your Figma data.<br/>Implement designs in any framework in one-shot.</h3>
   <a href="https://npmcharts.com/compare/figma-developer-mcp?interval=30">
