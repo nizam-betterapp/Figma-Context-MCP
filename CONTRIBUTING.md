@@ -10,7 +10,14 @@ This project adheres to the Unix philosophy: tools should have one job and few a
 
 ### MCP Server Scope
 
-The MCP server should only focus on **ingesting designs for AI consumption**. This is our core responsibility and what we do best. Additional features like image conversion, cropping, or other image manipulation tasks are best handled externally by other specialized tools. This focused approach ensures:
+The MCP server should only focus on **ingesting designs for AI consumption**. This is our core responsibility and what we do best. Additional features are best handled externally by other specialized tools. Examples of features that would be out of scope include:
+
+- Image conversion, cropping, or other image manipulation
+- Syncing design data to CMSes or databases
+- Code generation or framework-specific output
+- Third-party integrations unrelated to design ingestion
+
+This focused approach ensures:
 
 - Clear boundaries and responsibilities
 - Better maintainability
