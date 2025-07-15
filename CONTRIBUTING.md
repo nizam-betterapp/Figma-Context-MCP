@@ -67,8 +67,21 @@ This focused approach ensures:
    ```
 
 6. **Start development server:**
+
    ```bash
    pnpm dev
+   ```
+
+7. **Test locally:**
+
+   `pnpm dev` will start a local server you can connect to via Streamable HTTP. To connect to it, you can add the following configuration to your MCP JSON config file. Note, some MCP clients use a different format. [See the Framelink docs](https://www.framelink.ai/docs/quickstart#configure-ide) for more information on specific clients.
+
+   ```bash
+   "mcpServers": {
+      "Framelink Figma MCP - Local StreamableHTTP": {
+         "url": "http://localhost:3333/mcp"
+      },
+   }
    ```
 
 ### Development Commands
@@ -153,40 +166,6 @@ src/
 - Breaking changes without discussion
 - Code that doesn't follow our style guidelines
 - Features without tests
-
-## Testing Your Changes
-
-### Local Testing
-
-Test your changes locally running the following command:
-
-```bash
-pnpm dev
-```
-
-This will start a local server you can connect to via Streamable HTTP. To connect to it, you can add the following configuration to your MCP JSON config file. Note, some MCP clients use a different format. [See the Framelink docs](https://www.framelink.ai/docs/quickstart#configure-ide) for more information on specific clients.
-
-```bash
-"mcpServers": {
-   "Framelink Figma MCP - Local StreamableHTTP": {
-      "url": "http://localhost:3333/mcp"
-   },
-}
-```
-
-### Integration Testing
-
-Use the MCP inspector to test your changes:
-
-```bash
-pnpm inspect
-```
-
-### Testing with Cursor
-
-1. Build your changes: `pnpm build`
-2. Update your Cursor MCP configuration to point to your local build
-3. Test the functionality in Cursor
 
 ## Getting Help
 
