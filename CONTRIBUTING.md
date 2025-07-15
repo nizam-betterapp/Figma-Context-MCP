@@ -144,7 +144,7 @@ src/
    pnpm lint
    ```
 5. **Update documentation** if needed
-6. **Submit a pull request** with a clear description
+6. **Submit a pull request** with a clear description that includes context and motivation for the changes
 
 ### Commit Messages
 
@@ -154,6 +154,7 @@ src/
 
 ### What We're Looking For
 
+- **New features** - Expand the server's capabilities to support more Figma features
 - **Bug fixes** - Help us improve reliability
 - **Performance improvements** - Make the server faster
 - **Documentation improvements** - Help others understand the project
