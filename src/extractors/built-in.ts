@@ -62,14 +62,17 @@ export const textExtractor: ExtractorFn = (node, result, context) => {
  * Extracts visual appearance properties (fills, strokes, effects, opacity, border radius).
  */
 export const visualsExtractor: ExtractorFn = (node, result, context) => {
+  // Check if node has children to determine CSS properties
+  const hasChildren = hasValue("children", node) && Array.isArray(node.children) && node.children.length > 0;
+  
   // fills
   if (hasValue("fills", node) && Array.isArray(node.fills) && node.fills.length) {
-    const fills = node.fills.map(parsePaint);
+    const fills = node.fills.map((fill) => parsePaint(fill, hasChildren));
     result.fills = findOrCreateVar(context.globalVars, fills, "fill");
   }
 
   // strokes
-  const strokes = buildSimplifiedStrokes(node);
+  const strokes = buildSimplifiedStrokes(node, hasChildren);
   if (strokes.colors.length) {
     result.strokes = findOrCreateVar(context.globalVars, strokes, "stroke");
   }

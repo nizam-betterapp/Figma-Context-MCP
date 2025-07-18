@@ -56,7 +56,7 @@ async function getFigmaData(
       maxDepth: depth,
     });
 
-    writeLogs("figma-simplified.json", JSON.stringify(simplifiedDesign, null, 2));
+    writeLogs("figma-simplified.json", simplifiedDesign);
 
     Logger.log(
       `Successfully extracted data: ${simplifiedDesign.nodes.length} nodes, ${Object.keys(simplifiedDesign.globalVars.styles).length} styles`,

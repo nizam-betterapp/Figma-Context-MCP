@@ -5,6 +5,7 @@ import type {
   GetImageFillsResponse,
 } from "@figma/rest-api-spec";
 import { downloadFigmaImage } from "~/utils/common.js";
+import { downloadAndProcessImage, type ImageProcessingResult } from "~/utils/image-processing.js";
 import { Logger, writeLogs } from "~/utils/logger.js";
 import { fetchWithRetry } from "~/utils/fetch-with-retry.js";
 
@@ -126,49 +127,67 @@ export class FigmaService {
   }
 
   /**
-   * Smart image download method with auto-detection.
+   * Download images method with post-processing support for cropping and returning image dimensions.
    *
-   * Automatically detects:
+   * Supports:
    * - Image fills vs rendered nodes (based on imageRef vs nodeId)
    * - PNG vs SVG format (based on filename extension)
+   * - Image cropping based on transform matrices
+   * - CSS variable generation for image dimensions
    *
    * @returns Array of local file paths for successfully downloaded images
    */
   async downloadImages(
     fileKey: string,
     localPath: string,
-    items: Array<{ imageRef: string; fileName: string } | { nodeId: string; fileName: string }>,
+    items: Array<{
+      imageRef?: string;
+      nodeId?: string;
+      fileName: string;
+      needsCropping?: boolean;
+      cropTransform?: any;
+      requiresImageDimensions?: boolean;
+    }>,
     options: { pngScale?: number; svgOptions?: SvgOptions } = {},
-  ): Promise<string[]> {
+  ): Promise<ImageProcessingResult[]> {
     if (items.length === 0) return [];
 
     const { pngScale = 2, svgOptions } = options;
-    const downloadPromises: Promise<string[]>[] = [];
+    const downloadPromises: Promise<ImageProcessingResult[]>[] = [];
 
     // Separate items by type
     const imageFills = items.filter(
-      (item): item is { imageRef: string; fileName: string } => "imageRef" in item,
+      (item): item is typeof item & { imageRef: string } => !!item.imageRef,
     );
     const renderNodes = items.filter(
-      (item): item is { nodeId: string; fileName: string } => "nodeId" in item,
+      (item): item is typeof item & { nodeId: string } => !!item.nodeId,
     );
 
-    // Download image fills
+    // Download image fills with processing
     if (imageFills.length > 0) {
       const fillUrls = await this.getImageFillUrls(fileKey);
       const fillDownloads = imageFills
-        .map(({ imageRef, fileName }) => {
+        .map(({ imageRef, fileName, needsCropping, cropTransform, requiresImageDimensions }) => {
           const imageUrl = fillUrls[imageRef];
-          return imageUrl ? downloadFigmaImage(fileName, localPath, imageUrl) : null;
+          return imageUrl
+            ? downloadAndProcessImage(
+                fileName,
+                localPath,
+                imageUrl,
+                needsCropping,
+                cropTransform,
+                requiresImageDimensions,
+              )
+            : null;
         })
-        .filter((promise): promise is Promise<string> => promise !== null);
+        .filter((promise): promise is Promise<ImageProcessingResult> => promise !== null);
 
       if (fillDownloads.length > 0) {
         downloadPromises.push(Promise.all(fillDownloads));
       }
     }
 
-    // Download rendered nodes - group by auto-detected format
+    // Download rendered nodes with processing
     if (renderNodes.length > 0) {
       const pngNodes = renderNodes.filter((node) => !node.fileName.toLowerCase().endsWith(".svg"));
       const svgNodes = renderNodes.filter((node) => node.fileName.toLowerCase().endsWith(".svg"));
@@ -182,11 +201,20 @@ export class FigmaService {
           { pngScale },
         );
         const pngDownloads = pngNodes
-          .map(({ nodeId, fileName }) => {
+          .map(({ nodeId, fileName, needsCropping, cropTransform, requiresImageDimensions }) => {
             const imageUrl = pngUrls[nodeId];
-            return imageUrl ? downloadFigmaImage(fileName, localPath, imageUrl) : null;
+            return imageUrl
+              ? downloadAndProcessImage(
+                  fileName,
+                  localPath,
+                  imageUrl,
+                  needsCropping,
+                  cropTransform,
+                  requiresImageDimensions,
+                )
+              : null;
           })
-          .filter((promise): promise is Promise<string> => promise !== null);
+          .filter((promise): promise is Promise<ImageProcessingResult> => promise !== null);
 
         if (pngDownloads.length > 0) {
           downloadPromises.push(Promise.all(pngDownloads));
@@ -202,11 +230,20 @@ export class FigmaService {
           { svgOptions },
         );
         const svgDownloads = svgNodes
-          .map(({ nodeId, fileName }) => {
+          .map(({ nodeId, fileName, needsCropping, cropTransform, requiresImageDimensions }) => {
             const imageUrl = svgUrls[nodeId];
-            return imageUrl ? downloadFigmaImage(fileName, localPath, imageUrl) : null;
+            return imageUrl
+              ? downloadAndProcessImage(
+                  fileName,
+                  localPath,
+                  imageUrl,
+                  needsCropping,
+                  cropTransform,
+                  requiresImageDimensions,
+                )
+              : null;
           })
-          .filter((promise): promise is Promise<string> => promise !== null);
+          .filter((promise): promise is Promise<ImageProcessingResult> => promise !== null);
 
         if (svgDownloads.length > 0) {
           downloadPromises.push(Promise.all(svgDownloads));
@@ -226,7 +263,7 @@ export class FigmaService {
     Logger.log(`Retrieving raw Figma file: ${fileKey} (depth: ${depth ?? "default"})`);
 
     const response = await this.request<GetFileResponse>(endpoint);
-    writeLogs("figma-raw.yml", JSON.stringify(response, null, 2));
+    writeLogs("figma-raw.json", response);
 
     return response;
   }
@@ -245,7 +282,7 @@ export class FigmaService {
     );
 
     const response = await this.request<GetFileNodesResponse>(endpoint);
-    writeLogs("figma-raw.yml", JSON.stringify(response, null, 2));
+    writeLogs("figma-raw.json", response);
 
     return response;
   }
