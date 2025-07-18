@@ -80,6 +80,20 @@ export type SimplifiedGradientFill = {
 
 export type SimplifiedPatternFill = {
   type: "PATTERN";
+  patternSource: {
+    /**
+     * Hardcode to expect PNG for now, consider SVG detection in the future.
+     *
+     * SVG detection is a bit challenging because the nodeId in question isn't
+     * guaranteed to be included in the response we're working with. No guaranteed
+     * way to look into it and see if it's only composed of vector shapes.
+     */
+    type: "IMAGE-PNG";
+    nodeId: string;
+  };
+  backgroundRepeat: string;
+  backgroundSize: string;
+  backgroundPosition: string;
 };
 
 export type SimplifiedFill =
@@ -235,6 +249,7 @@ export function buildSimplifiedStrokes(
 
   return strokes;
 }
+
 /**
  * Convert a Figma paint (solid, image, gradient) to a SimplifiedFill
  * @param raw - The Figma paint to convert
@@ -287,9 +302,7 @@ export function parsePaint(raw: Paint, hasChildren: boolean = false): Simplified
       return formatRGBAColor(raw.color!, opacity);
     }
   } else if (raw.type === "PATTERN") {
-    return {
-      type: raw.type,
-    };
+    return parsePatternPaint(raw);
   } else if (
     ["GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND"].includes(
       raw.type,
@@ -310,6 +323,64 @@ export function parsePaint(raw: Paint, hasChildren: boolean = false): Simplified
   } else {
     throw new Error(`Unknown paint type: ${raw.type}`);
   }
+}
+
+/**
+ * Convert a Figma PatternPaint to a CSS-like pattern fill.
+ *
+ * Ignores `tileType` and `spacing` from the Figma API currently as there's
+ * no great way to translate them to CSS.
+ *
+ * @param raw - The Figma PatternPaint to convert
+ * @returns The converted pattern SimplifiedFill
+ */
+function parsePatternPaint(
+  raw: Extract<Paint, { type: "PATTERN" }>,
+): Extract<SimplifiedFill, { type: "PATTERN" }> {
+  /**
+   * The only CSS-like repeat value supported by Figma is repeat.
+   *
+   * They also have hexagonal horizontal and vertical repeats, but
+   * those aren't easy to pull off in CSS, so we just use repeat.
+   */
+  let backgroundRepeat = "repeat";
+
+  let horizontal = "left";
+  switch (raw.horizontalAlignment) {
+    case "START":
+      horizontal = "left";
+      break;
+    case "CENTER":
+      horizontal = "center";
+      break;
+    case "END":
+      horizontal = "right";
+      break;
+  }
+
+  let vertical = "top";
+  switch (raw.verticalAlignment) {
+    case "START":
+      vertical = "top";
+      break;
+    case "CENTER":
+      vertical = "center";
+      break;
+    case "END":
+      vertical = "bottom";
+      break;
+  }
+
+  return {
+    type: raw.type,
+    patternSource: {
+      type: "IMAGE-PNG",
+      nodeId: raw.sourceNodeId,
+    },
+    backgroundRepeat,
+    backgroundSize: `${Math.round(raw.scalingFactor * 100)}%`,
+    backgroundPosition: `${horizontal} ${vertical}`,
+  };
 }
 
 /**
