@@ -16,15 +16,16 @@ const serverInfo = {
 type CreateServerOptions = {
   isHTTP?: boolean;
   outputFormat?: "yaml" | "json";
+  skipImageDownloads?: boolean;
 };
 
 function createServer(
   authOptions: FigmaAuthOptions,
-  { isHTTP = false, outputFormat = "yaml" }: CreateServerOptions = {},
+  { isHTTP = false, outputFormat = "yaml", skipImageDownloads = false }: CreateServerOptions = {},
 ) {
   const server = new McpServer(serverInfo);
   const figmaService = new FigmaService(authOptions);
-  registerTools(server, figmaService, outputFormat);
+  registerTools(server, figmaService, { outputFormat, skipImageDownloads });
 
   Logger.isHTTP = isHTTP;
 
@@ -34,23 +35,29 @@ function createServer(
 function registerTools(
   server: McpServer,
   figmaService: FigmaService,
-  outputFormat: "yaml" | "json",
+  options: {
+    outputFormat: "yaml" | "json";
+    skipImageDownloads: boolean;
+  },
 ): void {
   // Register get_figma_data tool
   server.tool(
     getFigmaDataTool.name,
     getFigmaDataTool.description,
     getFigmaDataTool.parameters,
-    (params: GetFigmaDataParams) => getFigmaDataTool.handler(params, figmaService, outputFormat),
+    (params: GetFigmaDataParams) =>
+      getFigmaDataTool.handler(params, figmaService, options.outputFormat),
   );
 
-  // Register download_figma_images tool
-  server.tool(
-    downloadFigmaImagesTool.name,
-    downloadFigmaImagesTool.description,
-    downloadFigmaImagesTool.parameters,
-    (params: DownloadImagesParams) => downloadFigmaImagesTool.handler(params, figmaService),
-  );
+  // Register download_figma_images tool if CLI flag or env var is not set
+  if (!options.skipImageDownloads) {
+    server.tool(
+      downloadFigmaImagesTool.name,
+      downloadFigmaImagesTool.description,
+      downloadFigmaImagesTool.parameters,
+      (params: DownloadImagesParams) => downloadFigmaImagesTool.handler(params, figmaService),
+    );
+  }
 }
 
 export { createServer };

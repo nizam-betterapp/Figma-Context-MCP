@@ -19,6 +19,7 @@ export async function startServer(): Promise<void> {
   const server = createServer(config.auth, {
     isHTTP: !isStdioMode,
     outputFormat: config.outputFormat,
+    skipImageDownloads: config.skipImageDownloads,
   });
 
   if (isStdioMode) {
