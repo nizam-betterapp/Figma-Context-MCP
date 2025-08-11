@@ -1,5 +1,4 @@
 import type { Node as FigmaDocumentNode } from "@figma/rest-api-spec";
-import { isVisible } from "~/utils/common.js";
 import { hasValue } from "~/utils/identity.js";
 import type {
   ExtractorFn,
@@ -93,11 +92,6 @@ function processNodeWithExtractors(
  * Determine if a node should be processed based on filters.
  */
 function shouldProcessNode(node: FigmaDocumentNode, options: TraversalOptions): boolean {
-  // Skip invisible nodes
-  if (!isVisible(node)) {
-    return false;
-  }
-
   // Apply custom node filter if provided
   if (options.nodeFilter && !options.nodeFilter(node)) {
     return false;
