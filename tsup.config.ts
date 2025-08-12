@@ -10,6 +10,7 @@ export default defineConfig({
   minify: !isDev,
   target: "esnext",
   outDir: "dist",
+  splitting: false,  // Disable code splitting to avoid cryptic chunk names
   outExtension: ({ format }) => ({
     js: ".js",
   }),

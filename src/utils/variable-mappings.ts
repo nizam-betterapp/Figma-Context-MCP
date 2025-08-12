@@ -7,6 +7,11 @@
 
 import { Logger } from "~/utils/logger.js";
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface VariableMapping {
   id: string;
@@ -207,7 +212,13 @@ function parseDesignSystemTokens(content: string): VariableMapping[] {
  * Get variable mappings from design system tokens file
  */
 function getLocalMappings(): VariableMapping[] {
-  const designSystemTokensPath = '/Users/chitroopamanikkavasagam/regainapp.ai/app/src/main/res/raw/design_system_tokens.json';
+  // Check for environment variable first
+  const envPath = process.env.DESIGN_TOKENS_PATH;
+  
+  // Use environment variable if set, otherwise use relative path to project root
+  // From dist/ go up to figma-context-mcp then up to project root (2 levels)
+  const designSystemTokensPath = envPath || 
+    path.resolve(__dirname, '../../design_system_tokens.json');
   
   try {
     if (fs.existsSync(designSystemTokensPath)) {
