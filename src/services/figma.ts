@@ -283,8 +283,55 @@ export class FigmaService {
 
     const response = await this.request<GetFileNodesResponse>(endpoint);
     writeLogs("figma-raw.json", response);
+    
+    // Check for text nodes with style properties
+    this.checkForTextStyles(response);
 
     return response;
+  }
+
+  /**
+   * Check for text styles in the API response
+   */
+  private checkForTextStyles(response: GetFileNodesResponse): void {
+    if (!response.nodes) return;
+    
+    const checkNode = (node: any, path: string = ""): void => {
+      if (!node) return;
+      
+      // Check if this is a text node
+      if (node.type === "TEXT") {
+        Logger.log(`Found TEXT node at ${path || "root"}`);
+        
+        // Check for style-related fields
+        if (node.styles) {
+          Logger.log(`  - Has 'styles' field: ${JSON.stringify(node.styles)}`);
+        }
+        if (node.textStyleId) {
+          Logger.log(`  - Has 'textStyleId': ${node.textStyleId}`);
+        }
+        if (node.styleOverrideTable) {
+          Logger.log(`  - Has 'styleOverrideTable': ${JSON.stringify(node.styleOverrideTable).substring(0, 200)}...`);
+        }
+        
+        // Log all properties to see what's available
+        const keys = Object.keys(node);
+        Logger.log(`  - All properties: ${keys.join(", ")}`);
+      }
+      
+      // Recurse through children
+      if (node.children && Array.isArray(node.children)) {
+        node.children.forEach((child: any, index: number) => {
+          checkNode(child, `${path}[${index}]`);
+        });
+      }
+    };
+    
+    for (const [id, nodeData] of Object.entries(response.nodes)) {
+      if (nodeData?.document) {
+        checkNode(nodeData.document, id);
+      }
+    }
   }
 
   /**

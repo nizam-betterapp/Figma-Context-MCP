@@ -55,7 +55,19 @@ export const textExtractor: ExtractorFn = (node, result, context) => {
   // Extract text style
   if (hasTextStyle(node)) {
     const textStyle = extractTextStyle(node);
-    result.textStyle = findOrCreateVar(context.globalVars, textStyle, "style");
+    const styleId = findOrCreateVar(context.globalVars, textStyle, "style");
+    
+    // Check if node has styles.text field (text style ID from Figma)
+    const textStyleId = (node as any).styles?.text;
+    if (textStyleId) {
+      // Store the original style ID for later mapping
+      const styleData = context.globalVars.styles[styleId as any];
+      if (styleData && typeof styleData === 'object') {
+        (styleData as any).textStyleId = textStyleId;
+      }
+    }
+    
+    result.textStyle = styleId;
   }
 };
 

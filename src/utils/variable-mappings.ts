@@ -14,8 +14,21 @@ export interface VariableMapping {
   description?: string;
 }
 
+export interface TextStyleMapping {
+  styleId: string;
+  name: string;
+  properties: {
+    fontFamily?: string;
+    fontWeight?: number;
+    fontSize?: number;
+    lineHeight?: number;
+    letterSpacing?: number;
+  };
+}
+
 // Cache for parsed mappings
 let cachedMappings: VariableMapping[] | null = null;
+let cachedTextStyles: TextStyleMapping[] | null = null;
 let lastModTime: number = 0;
 
 /**
@@ -32,6 +45,79 @@ function toCamelCase(str: string): string {
     }
     return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
   }).join('');
+}
+
+/**
+ * Parse text styles from design system tokens
+ */
+function parseTextStyles(content: string): TextStyleMapping[] {
+  try {
+    const tokens = JSON.parse(content);
+    const textStyles: TextStyleMapping[] = [];
+    
+    // Recursive function to extract text styles
+    function extractTextStyles(obj: any, path: string[] = []) {
+      if (!obj || typeof obj !== 'object') return;
+      
+      for (const [key, value] of Object.entries(obj)) {
+        const currentPath = [...path, key];
+        
+        // Check if this is a font style with styleId
+        if (value && typeof value === 'object') {
+          const extensions = (value as any).extensions;
+          if (extensions?.['org.lukasoppermann.figmaDesignTokens']?.styleId) {
+            const styleId = extensions['org.lukasoppermann.figmaDesignTokens'].styleId;
+            const type = (value as any).type;
+            
+            // Only process font styles
+            if (type === 'custom-fontStyle' && (value as any).value) {
+              const styleValue = (value as any).value;
+              
+              // Build the semantic name from the path
+              // Remove "font" from path if it exists, and use MaterialTheme.typography prefix
+              let pathParts = [...currentPath];
+              // Remove 'font' if it's the first element
+              if (pathParts[0] === 'font') {
+                pathParts = pathParts.slice(1);
+              }
+              
+              // Convert to camelCase and join - e.g., ["title", "small"] becomes "titleSmall"
+              const styleName = pathParts.map((part, index) => {
+                if (index === 0) {
+                  return part.toLowerCase();
+                }
+                // Capitalize first letter of subsequent parts
+                return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+              }).join('');
+              
+              const name = `MaterialTheme.typography.${styleName}`;
+              
+              textStyles.push({
+                styleId: styleId,
+                name: name,
+                properties: {
+                  fontFamily: styleValue.fontFamily,
+                  fontWeight: styleValue.fontWeight,
+                  fontSize: styleValue.fontSize,
+                  lineHeight: styleValue.lineHeight,
+                  letterSpacing: styleValue.letterSpacing
+                }
+              });
+            }
+          }
+          
+          // Continue recursion
+          extractTextStyles(value, currentPath);
+        }
+      }
+    }
+    
+    extractTextStyles(tokens);
+    return textStyles;
+  } catch (error) {
+    Logger.log(`Error parsing text styles: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
 }
 
 /**
@@ -140,8 +226,10 @@ function getLocalMappings(): VariableMapping[] {
       
       const content = fs.readFileSync(designSystemTokensPath, 'utf-8');
       const mappings = parseDesignSystemTokens(content);
-      Logger.log(`Loaded ${mappings.length} mappings from design system tokens`);
+      const textStyles = parseTextStyles(content);
+      Logger.log(`Loaded ${mappings.length} variable mappings and ${textStyles.length} text styles from design system tokens`);
       cachedMappings = mappings;
+      cachedTextStyles = textStyles;
       return mappings;
     }
   } catch (error) {
@@ -173,6 +261,80 @@ export async function resolveVariableFromMapping(
   const mapping = allMappings.find(m => m.id === fullId);
   
   return mapping ? mapping.name : null;
+}
+
+/**
+ * Get all text style mappings
+ */
+export async function getTextStyleMappings(): Promise<TextStyleMapping[]> {
+  // Ensure mappings are loaded
+  await getVariableMappings();
+  return cachedTextStyles || [];
+}
+
+/**
+ * Resolve a text style ID to its semantic name
+ */
+export async function resolveTextStyleFromMapping(
+  styleId: string
+): Promise<string | null> {
+  const textStyles = await getTextStyleMappings();
+  
+  // Try exact match first
+  let mapping = textStyles.find(s => s.styleId === styleId);
+  
+  // Try with S: prefix if not found
+  if (!mapping && !styleId.startsWith('S:')) {
+    mapping = textStyles.find(s => s.styleId === `S:${styleId}`);
+  }
+  
+  // Try without S: prefix if it has one
+  if (!mapping && styleId.startsWith('S:')) {
+    mapping = textStyles.find(s => s.styleId === styleId.slice(2));
+  }
+  
+  return mapping ? mapping.name : null;
+}
+
+/**
+ * Resolve a text style by matching font properties
+ */
+export async function resolveTextStyleByProperties(properties: {
+  fontFamily?: string;
+  fontSize?: number;
+  fontWeight?: number;
+  lineHeight?: number | string;
+}): Promise<string | null> {
+  const textStyles = await getTextStyleMappings();
+  
+  // Normalize font family for comparison (case insensitive)
+  const normalizedFamily = properties.fontFamily?.toLowerCase().replace(/\s+/g, '');
+  
+  // Find a matching style based on properties
+  const match = textStyles.find(style => {
+    const styleProps = style.properties;
+    
+    // Check font family (case insensitive)
+    const styleFamilyNorm = styleProps.fontFamily?.toLowerCase().replace(/\s+/g, '');
+    if (normalizedFamily && styleFamilyNorm && normalizedFamily !== styleFamilyNorm) {
+      return false;
+    }
+    
+    // Check font size
+    if (properties.fontSize !== undefined && styleProps.fontSize !== properties.fontSize) {
+      return false;
+    }
+    
+    // Check font weight
+    if (properties.fontWeight !== undefined && styleProps.fontWeight !== properties.fontWeight) {
+      return false;
+    }
+    
+    // If all checked properties match, we found it
+    return true;
+  });
+  
+  return match ? match.name : null;
 }
 
 /**

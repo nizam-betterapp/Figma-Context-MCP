@@ -1,8 +1,8 @@
 /**
- * Post-processing to resolve variable names in extracted data
+ * Post-processing to resolve variable names and text styles in extracted data
  */
 
-import { resolveVariableFromMapping } from "./variable-mappings.js";
+import { resolveVariableFromMapping, resolveTextStyleFromMapping } from "./variable-mappings.js";
 import { Logger } from "./logger.js";
 
 /**
@@ -61,9 +61,62 @@ export async function resolveVariablesInDesign(
     }
   }
   
+  // Resolve text styles
+  await resolveTextStyles(resolved);
+  
   Logger.log(`Resolved ${resolutions.size} variable references`);
   
   return resolved;
+}
+
+/**
+ * Resolve text style IDs to semantic names
+ */
+async function resolveTextStyles(data: any): Promise<void> {
+  if (!data.globalVars || !data.globalVars.styles) return;
+  
+  const { resolveTextStyleFromMapping, resolveTextStyleByProperties } = await import("./variable-mappings.js");
+  let textStyleCount = 0;
+  
+  for (const [styleId, styleData] of Object.entries(data.globalVars.styles)) {
+    if (styleData && typeof styleData === 'object') {
+      const textStyleId = (styleData as any).textStyleId;
+      
+      if (textStyleId) {
+        // First try to resolve by style ID
+        let resolvedName = await resolveTextStyleFromMapping(textStyleId);
+        
+        // If not found by ID, try to match by properties
+        if (!resolvedName && (styleData as any).fontFamily) {
+          resolvedName = await resolveTextStyleByProperties({
+            fontFamily: (styleData as any).fontFamily,
+            fontSize: (styleData as any).fontSize,
+            fontWeight: (styleData as any).fontWeight,
+            lineHeight: (styleData as any).lineHeight
+          });
+          
+          if (resolvedName) {
+            Logger.log(`Resolved text style by properties: ${JSON.stringify({
+              fontSize: (styleData as any).fontSize,
+              fontWeight: (styleData as any).fontWeight
+            })} -> ${resolvedName}`);
+          }
+        }
+        
+        if (resolvedName) {
+          // Replace the entire style data with the semantic name
+          data.globalVars.styles[styleId] = resolvedName;
+          textStyleCount++;
+        } else {
+          Logger.log(`Could not resolve text style: ${textStyleId}`);
+        }
+      }
+    }
+  }
+  
+  if (textStyleCount > 0) {
+    Logger.log(`Resolved ${textStyleCount} text styles`);
+  }
 }
 
 /**
