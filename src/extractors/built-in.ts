@@ -192,23 +192,99 @@ export const visualsExtractor: ExtractorFn = (node, result, context) => {
 };
 
 /**
- * Extracts component-related properties from INSTANCE nodes.
+ * Extracts component-related properties from INSTANCE, COMPONENT, and COMPONENT_SET nodes.
  */
 export const componentExtractor: ExtractorFn = (node, result, context) => {
+  // Extract properties for instances
   if (node.type === "INSTANCE") {
     if (hasValue("componentId", node)) {
       result.componentId = node.componentId;
     }
 
+    // Add mainComponent reference if available
+    if ((node as any).mainComponent) {
+      result.mainComponent = (node as any).mainComponent;
+    }
+
     // Add specific properties for instances of components
     if (hasValue("componentProperties", node)) {
       result.componentProperties = Object.entries(node.componentProperties ?? {}).map(
-        ([name, { value, type }]) => ({
-          name,
-          value: value.toString(),
-          type,
-        }),
+        ([name, prop]) => {
+          const propData: any = {
+            name,
+            value: prop.value.toString(),
+            type: prop.type,
+          };
+          
+          // Add preferredValues for INSTANCE_SWAP properties
+          if (prop.type === "INSTANCE_SWAP" && (prop as any).preferredValues) {
+            propData.preferredValues = (prop as any).preferredValues;
+          }
+          
+          // Add boundVariables if present
+          if ((prop as any).boundVariables) {
+            propData.boundVariables = (prop as any).boundVariables;
+          }
+          
+          return propData;
+        },
       );
+    }
+
+    // Add instance swap preferred values if available
+    if ((node as any).exposedInstances) {
+      result.exposedInstances = (node as any).exposedInstances;
+    }
+  }
+  
+  // Extract property definitions for components and component sets
+  if (node.type === "COMPONENT" || node.type === "COMPONENT_SET") {
+    // Extract component key and description
+    if ((node as any).key) {
+      result.key = (node as any).key;
+    }
+    
+    if ((node as any).description) {
+      result.description = (node as any).description;
+    }
+    
+    if ((node as any).documentationLinks) {
+      result.documentationLinks = (node as any).documentationLinks;
+    }
+    
+    // Extract component property definitions
+    if ((node as any).componentPropertyDefinitions) {
+      result.componentPropertyDefinitions = Object.entries(
+        (node as any).componentPropertyDefinitions
+      ).map(([name, def]: [string, any]) => {
+        const definition: any = {
+          name,
+          type: def.type,
+          defaultValue: def.defaultValue,
+        };
+        
+        // Add variant options for VARIANT type
+        if (def.type === "VARIANT" && def.variantOptions) {
+          definition.variantOptions = def.variantOptions;
+        }
+        
+        // Add preferred values for INSTANCE_SWAP type
+        if (def.type === "INSTANCE_SWAP" && def.preferredValues) {
+          definition.preferredValues = def.preferredValues;
+        }
+        
+        return definition;
+      });
+    }
+    
+    // For component sets, track the default variant
+    if (node.type === "COMPONENT_SET" && (node as any).defaultVariantId) {
+      result.defaultVariantId = (node as any).defaultVariantId;
+    }
+    
+    // For regular components, track the parent component set
+    if (node.type === "COMPONENT" && (node as any).componentSetId) {
+      result.componentSetId = (node as any).componentSetId;
     }
   }
 };

@@ -3,6 +3,8 @@ import type { GetFileResponse, GetFileNodesResponse } from "@figma/rest-api-spec
 import { FigmaService } from "~/services/figma.js";
 import { simplifyRawFigmaObject, allExtractors } from "~/extractors/index.js";
 import { resolveVariablesInDesign } from "~/utils/variable-resolver.js";
+import { analyzeAllComponentSets } from "~/utils/variant-analyzer.js";
+import { enhanceComponentSetData } from "~/utils/property-parser.js";
 import yaml from "js-yaml";
 import { Logger, writeLogs } from "~/utils/logger.js";
 
@@ -67,10 +69,32 @@ async function getFigmaData(
     // Post-process to resolve variable names
     simplifiedDesign = await resolveVariablesInDesign(simplifiedDesign, variables, variableCollections);
 
+    // Enhance component sets with parsed property definitions
+    const enhancedNodes = simplifiedDesign.nodes.map(node => {
+      if (node.type === "COMPONENT_SET") {
+        return enhanceComponentSetData(node) || node;
+      }
+      return node;
+    });
+    
+    // Replace nodes with enhanced versions
+    simplifiedDesign.nodes = enhancedNodes;
+    
+    // Analyze component sets to extract variant information
+    const variantAnalyses = analyzeAllComponentSets(simplifiedDesign.nodes);
+    
+    // Log component property definitions from nodes
+    simplifiedDesign.nodes.forEach(node => {
+      if ((node.type === "COMPONENT" || node.type === "COMPONENT_SET") && (node as any).propertyDefinitions) {
+        Logger.log(`Enhanced ${node.type} ${node.name} with ${(node as any).propertyDefinitions.length} property definitions`);
+      }
+    });
+
     writeLogs("figma-simplified.json", simplifiedDesign);
+    writeLogs("figma-variant-analysis.json", variantAnalyses);
 
     Logger.log(
-      `Successfully extracted data: ${simplifiedDesign.nodes.length} nodes, ${Object.keys(simplifiedDesign.globalVars.styles).length} styles`,
+      `Successfully extracted data: ${simplifiedDesign.nodes.length} nodes, ${Object.keys(simplifiedDesign.globalVars.styles).length} styles, ${variantAnalyses.length} component sets analyzed`,
     );
 
     const { nodes, globalVars, ...metadata } = simplifiedDesign;
@@ -78,6 +102,7 @@ async function getFigmaData(
       metadata,
       nodes,
       globalVars,
+      variantAnalyses,
     };
 
     Logger.log(`Generating ${outputFormat.toUpperCase()} result from extracted data`);

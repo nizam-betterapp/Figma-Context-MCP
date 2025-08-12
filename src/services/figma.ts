@@ -264,6 +264,9 @@ export class FigmaService {
 
     const response = await this.request<GetFileResponse>(endpoint);
     writeLogs("figma-raw.json", response);
+    
+    // Check for component property definitions in the raw response
+    this.checkForComponentProperties(response);
 
     return response;
   }
@@ -288,6 +291,52 @@ export class FigmaService {
     this.checkForTextStyles(response);
 
     return response;
+  }
+
+  /**
+   * Check for component properties in the API response
+   */
+  private checkForComponentProperties(response: GetFileResponse | GetFileNodesResponse): void {
+    const checkNode = (node: any, path: string = ""): void => {
+      if (!node) return;
+      
+      // Check if this is a component or component set
+      if (node.type === "COMPONENT" || node.type === "COMPONENT_SET") {
+        Logger.log(`Found ${node.type} at ${path || "root"}: ${node.name}`);
+        
+        // Check for component property definitions
+        if (node.componentPropertyDefinitions) {
+          Logger.log(`  - Has componentPropertyDefinitions: ${JSON.stringify(node.componentPropertyDefinitions)}`);
+        } else {
+          Logger.log(`  - NO componentPropertyDefinitions found`);
+        }
+        
+        // Log all properties to see what's available
+        const keys = Object.keys(node);
+        Logger.log(`  - All properties: ${keys.join(", ")}`);
+      }
+      
+      // Recurse through children
+      if (node.children && Array.isArray(node.children)) {
+        node.children.forEach((child: any, index: number) => {
+          checkNode(child, `${path}[${index}]`);
+        });
+      }
+    };
+    
+    // Handle GetFileResponse
+    if ('document' in response && response.document) {
+      checkNode(response.document, "document");
+    }
+    
+    // Handle GetFileNodesResponse
+    if ('nodes' in response && response.nodes) {
+      for (const [id, nodeData] of Object.entries(response.nodes)) {
+        if (nodeData?.document) {
+          checkNode(nodeData.document, id);
+        }
+      }
+    }
   }
 
   /**

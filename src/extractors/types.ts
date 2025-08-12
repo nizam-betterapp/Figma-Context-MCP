@@ -10,6 +10,14 @@ import type {
   SimplifiedComponentSetDefinition,
 } from "~/transformers/component.js";
 
+export interface ComponentPropertyDefinition {
+  name: string;
+  type: 'BOOLEAN' | 'TEXT' | 'VARIANT' | 'INSTANCE_SWAP';
+  defaultValue: boolean | string;
+  variantOptions?: string[];
+  preferredValues?: Array<{ type: 'COMPONENT' | 'COMPONENT_SET'; key: string }>;
+}
+
 export type StyleTypes =
   | SimplifiedTextStyle
   | SimplifiedFill[]
@@ -63,7 +71,7 @@ export interface SimplifiedDesign {
 export interface SimplifiedNode {
   id: string;
   name: string;
-  type: string; // e.g. FRAME, TEXT, INSTANCE, RECTANGLE, etc.
+  type: string; // e.g. FRAME, TEXT, INSTANCE, RECTANGLE, COMPONENT, COMPONENT_SET, etc.
   // text
   text?: string;
   textStyle?: string;
@@ -76,9 +84,21 @@ export interface SimplifiedNode {
   borderRadius?: string;
   // layout & alignment
   layout?: string;
-  // for rect-specific strokes, etc.
+  
+  // Instance-specific properties
   componentId?: string;
+  mainComponent?: string;
   componentProperties?: ComponentProperties[];
+  exposedInstances?: Record<string, string>;
+  
+  // Component/ComponentSet-specific properties
+  key?: string;
+  description?: string;
+  documentationLinks?: Array<{ uri: string }>;
+  componentPropertyDefinitions?: ComponentPropertyDefinition[];
+  defaultVariantId?: string; // For component sets
+  componentSetId?: string; // For components that are variants
+  
   // children
   children?: SimplifiedNode[];
 }

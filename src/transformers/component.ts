@@ -6,11 +6,23 @@ export interface ComponentProperties {
   type: ComponentPropertyType;
 }
 
+export interface ComponentPropertyDefinition {
+  name: string;
+  type: 'BOOLEAN' | 'TEXT' | 'VARIANT' | 'INSTANCE_SWAP';
+  defaultValue: boolean | string;
+  variantOptions?: string[];
+  preferredValues?: Array<{ type: 'COMPONENT' | 'COMPONENT_SET'; key: string }>;
+}
+
 export interface SimplifiedComponentDefinition {
   id: string;
   key: string;
   name: string;
   componentSetId?: string;
+  description?: string;
+  documentationLinks?: Array<{ uri: string }>;
+  componentPropertyDefinitions?: Record<string, ComponentPropertyDefinition>;
+  remote?: boolean;
 }
 
 export interface SimplifiedComponentSetDefinition {
@@ -18,6 +30,10 @@ export interface SimplifiedComponentSetDefinition {
   key: string;
   name: string;
   description?: string;
+  documentationLinks?: Array<{ uri: string }>;
+  componentPropertyDefinitions?: Record<string, ComponentPropertyDefinition>;
+  defaultVariantId?: string;
+  remote?: boolean;
 }
 
 /**
@@ -34,6 +50,11 @@ export function simplifyComponents(
         key: comp.key,
         name: comp.name,
         componentSetId: comp.componentSetId,
+        description: comp.description,
+        documentationLinks: comp.documentationLinks,
+        remote: comp.remote,
+        // Note: componentPropertyDefinitions will be extracted by the node walker
+        // from the actual component nodes, not from the components metadata
       },
     ]),
   );
@@ -53,6 +74,10 @@ export function simplifyComponentSets(
         key: set.key,
         name: set.name,
         description: set.description,
+        documentationLinks: set.documentationLinks,
+        remote: set.remote,
+        // Note: componentPropertyDefinitions and defaultVariantId will be extracted 
+        // by the node walker from the actual component set nodes
       },
     ]),
   );

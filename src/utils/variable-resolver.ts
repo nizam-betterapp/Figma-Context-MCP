@@ -43,8 +43,41 @@ export async function resolveVariablesInDesign(
       variableIdForLookup = `VariableID:${idPart}`;
     }
     
-    // Simply resolve from our design_system_tokens.json mappings
-    const resolvedName = await resolveVariableFromMapping(variableIdForLookup);
+    // First try to resolve from our design_system_tokens.json mappings
+    let resolvedName = await resolveVariableFromMapping(variableIdForLookup);
+    
+    // If not found in mappings, try to resolve from Figma API variables
+    if (!resolvedName && variables && variableIdForLookup) {
+      const cleanId = variableIdForLookup.replace('VariableID:', '');
+      const variable = variables[cleanId];
+      
+      if (variable) {
+        // Build semantic name from variable data
+        let name = variable.name;
+        
+        // If the variable belongs to a collection, prepend the collection name
+        if (variable.variableCollectionId && variableCollections) {
+          const collection = variableCollections[variable.variableCollectionId];
+          if (collection && collection.name) {
+            // Format as "CollectionName/VariableName"
+            name = `${collection.name}/${name}`;
+            
+            // Convert to code-friendly format
+            const collectionPrefix = collection.name.replace(/\s+/g, '');
+            const varName = variable.name.split('/').map((part: string, index: number) => {
+              if (index === 0) return part.toLowerCase();
+              return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+            }).join('.');
+            
+            resolvedName = `${collectionPrefix}.${varName}`;
+          }
+        }
+        
+        if (!resolvedName) {
+          resolvedName = name;
+        }
+      }
+    }
     
     if (resolvedName) {
       resolutions.set(varId, resolvedName);
