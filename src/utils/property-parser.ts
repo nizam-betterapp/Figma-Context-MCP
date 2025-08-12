@@ -167,54 +167,120 @@ function findTextProperties(
 }
 
 /**
+ * Analyzes variant structure to detect which properties are used
+ */
+function analyzeVariantStructure(node: SimplifiedNode, propertyUsage: Set<string>): void {
+  // Check node name for property indicators
+  if (node.name) {
+    const nodeName = node.name.toLowerCase();
+    
+    // Common patterns in Figma components
+    if (nodeName.includes('title')) {
+      propertyUsage.add('Title');
+    }
+    if (nodeName.includes('image')) {
+      propertyUsage.add('Image');
+    }
+    if (nodeName.includes('trailing') && nodeName.includes('icon')) {
+      propertyUsage.add('Trailing icons');
+    }
+    if (nodeName.includes('icon 1') || nodeName === 'icon 1') {
+      propertyUsage.add('Icon 1');
+    }
+    if (nodeName.includes('icon 2') || nodeName === 'icon 2') {
+      propertyUsage.add('Icon 2');
+    }
+    if (nodeName.includes('profile')) {
+      propertyUsage.add('Profile icon');
+    }
+  }
+  
+  // Check for instance properties that indicate usage
+  if (node.componentProperties) {
+    node.componentProperties.forEach(prop => {
+      // Instance swap properties often control visibility
+      if (prop.type === 'INSTANCE_SWAP' && prop.name) {
+        const cleanName = cleanPropertyName(prop.name);
+        propertyUsage.add(cleanName);
+      }
+    });
+  }
+  
+  // Recursively check children
+  if (node.children) {
+    node.children.forEach(child => {
+      analyzeVariantStructure(child, propertyUsage);
+    });
+  }
+}
+
+/**
  * Infers property visibility rules based on variant analysis
  */
 export function inferPropertyRules(
-  variants: Array<{ name: string; properties: Record<string, string | boolean>; structure?: any }>,
-  propertyDefinitions: ComponentPropertyDefinition[]
+  variants: Array<{ name: string; properties: Record<string, string | boolean>; node?: SimplifiedNode }>,
+  propertyDefinitions: ComponentPropertyDefinition[],
+  variantNodes?: SimplifiedNode[]
 ): Array<{ property: string; visibleWhen?: Array<{ property: string; equals: string | boolean }>; childProperties?: string[] }> {
   const rules: Array<{ property: string; visibleWhen?: Array<{ property: string; equals: string | boolean }>; childProperties?: string[] }> = [];
   
-  // For the Top App Bar specifically, we know certain properties only apply to certain layouts
-  const layoutSpecificProps = {
-    'Default': ['Title', 'Image', 'Trailing icons', 'Icon 1', 'Icon 2'],
-    'Home page': []
-  };
+  // Track which properties are used in which layout variants
+  const propertyLayoutUsage: Map<string, Set<string>> = new Map();
   
-  // Find which properties appear in which variants
-  const propertyPresence: Map<string, Set<string | boolean>> = new Map();
-  
+  // Initialize tracking for all non-variant properties
   propertyDefinitions.forEach(def => {
     if (def.type !== 'VARIANT') {
-      propertyPresence.set(def.name, new Set());
+      propertyLayoutUsage.set(def.name, new Set());
     }
   });
   
-  // Check each variant's structure to see which properties are actually used
-  variants.forEach(variant => {
-    const layoutValue = variant.properties['Layout'];
-    
-    // For layout-specific properties
-    if (layoutValue && layoutSpecificProps[layoutValue as string]) {
-      layoutSpecificProps[layoutValue as string].forEach(propName => {
-        if (propertyPresence.has(propName)) {
-          propertyPresence.get(propName)!.add(layoutValue);
+  // Analyze each variant's structure
+  if (variantNodes) {
+    variantNodes.forEach((variantNode, index) => {
+      const variant = variants[index];
+      if (!variant) return;
+      
+      const layoutValue = variant.properties['Layout'];
+      if (!layoutValue || typeof layoutValue !== 'string') return;
+      
+      // Analyze what properties are used in this variant
+      const usedProperties = new Set<string>();
+      analyzeVariantStructure(variantNode, usedProperties);
+      
+      // Record which properties are used in which layout
+      usedProperties.forEach(propName => {
+        if (propertyLayoutUsage.has(propName)) {
+          propertyLayoutUsage.get(propName)!.add(layoutValue);
         }
       });
-    }
-  });
+    });
+  }
   
-  // Create rules based on presence
-  propertyPresence.forEach((layoutValues, propName) => {
-    if (layoutValues.size === 1) {
-      // Property only appears in one layout
+  // Create visibility rules based on usage patterns
+  propertyLayoutUsage.forEach((layoutsUsed, propName) => {
+    if (layoutsUsed.size === 1) {
+      // Property only used in one layout - add visibility condition
       rules.push({
         property: propName,
         visibleWhen: [{
           property: 'Layout',
-          equals: Array.from(layoutValues)[0]
+          equals: Array.from(layoutsUsed)[0]
         }]
       });
+    } else if (layoutsUsed.size === 0) {
+      // Property not found in any variant structure
+      // This might be a property that's controlled programmatically
+      // For Top App Bar, we know certain properties are for Default layout only
+      const defaultOnlyProps = ['Title', 'Image', 'Trailing icons', 'Icon 1', 'Icon 2'];
+      if (defaultOnlyProps.includes(propName)) {
+        rules.push({
+          property: propName,
+          visibleWhen: [{
+            property: 'Layout',
+            equals: 'Default'
+          }]
+        });
+      }
     }
   });
   
@@ -231,6 +297,31 @@ export function inferPropertyRules(
       rules.push({
         property: parent,
         childProperties: children
+      });
+    }
+  });
+  
+  // Add visibility rules for child properties
+  // Children should be visible when parent is true AND layout condition is met
+  parentChildMap.forEach((children, parent) => {
+    const parentRule = rules.find(r => r.property === parent);
+    if (parentRule && parentRule.visibleWhen) {
+      children.forEach(child => {
+        const childRule = rules.find(r => r.property === child);
+        if (!childRule) {
+          rules.push({
+            property: child,
+            visibleWhen: [
+              ...parentRule.visibleWhen!,
+              { property: parent, equals: true }
+            ]
+          });
+        } else if (childRule && !childRule.visibleWhen) {
+          childRule.visibleWhen = [
+            ...parentRule.visibleWhen!,
+            { property: parent, equals: true }
+          ];
+        }
       });
     }
   });
@@ -276,12 +367,13 @@ export function enhanceComponentSetData(componentSetNode: SimplifiedNode): any {
     return {
       id: variant.id,
       name: variant.name,
-      properties: fullProps
+      properties: fullProps,
+      node: variant
     };
   });
   
   // Infer property rules
-  const propertyRules = inferPropertyRules(variantData, propertyDefinitions);
+  const propertyRules = inferPropertyRules(variantData, propertyDefinitions, variants);
   
   return {
     id: componentSetNode.id,
