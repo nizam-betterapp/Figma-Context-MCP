@@ -11,6 +11,7 @@ import {
 } from "~/transformers/text.js";
 import { hasValue, isRectangleCornerRadii } from "~/utils/identity.js";
 import { generateVarId } from "~/utils/common.js";
+import { resolveVariableFromMapping, formatVariableReference } from "~/utils/variable-mappings.js";
 
 /**
  * Helper function to find or create a global variable.
@@ -68,7 +69,7 @@ function resolveVariableName(
 ): string | null {
   if (!variableId) return null;
   
-  // If we have variables metadata, use it
+  // First, try to get it from the API response
   if (variables && variables[variableId]) {
     const variable = variables[variableId];
     let name = variable.name;
@@ -84,9 +85,14 @@ function resolveVariableName(
     return name;
   }
   
-  // Fallback: use the variable ID itself as a placeholder
-  // This helps identify that a variable is being used even if we can't resolve its name
-  return `Variable:${variableId}`;
+  // Second, try to resolve from known mappings
+  const mappedName = resolveVariableFromMapping(variableId);
+  if (mappedName) {
+    return mappedName;
+  }
+  
+  // Finally, format the variable ID nicely
+  return formatVariableReference(variableId);
 }
 
 /**

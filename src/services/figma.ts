@@ -299,9 +299,46 @@ export class FigmaService {
       writeLogs("figma-variables.json", response);
       return response;
     } catch (error) {
-      Logger.log(`Failed to fetch variables: ${error instanceof Error ? error.message : String(error)}`);
-      // Return empty response if variables endpoint fails (might not be available for all files)
+      Logger.log(`Failed to fetch local variables: ${error instanceof Error ? error.message : String(error)}`);
+      
+      // Try published variables as fallback
+      try {
+        Logger.log(`Trying published variables as fallback...`);
+        const publishedEndpoint = `/files/${fileKey}/variables/published`;
+        const publishedResponse = await this.request<any>(publishedEndpoint);
+        writeLogs("figma-variables-published.json", publishedResponse);
+        return publishedResponse;
+      } catch (publishedError) {
+        Logger.log(`Failed to fetch published variables: ${publishedError instanceof Error ? publishedError.message : String(publishedError)}`);
+      }
+      
+      // Return empty response if all variable endpoints fail
       return { meta: { variables: {}, variableCollections: {} } };
     }
+  }
+  
+  /**
+   * Try to resolve library variables from component's library file
+   */
+  async getLibraryVariables(fileKey: string, componentId: string): Promise<any> {
+    try {
+      // Extract potential library key from component ID
+      // Component IDs from libraries often have format "libraryKey:nodeId"
+      const parts = componentId.split(':');
+      if (parts.length >= 2) {
+        // This might be a library component
+        Logger.log(`Checking if component ${componentId} is from a library...`);
+        
+        // We can't directly determine the library file key from the component ID
+        // but we can try common patterns
+        
+        // For now, return empty - this would need more sophisticated library detection
+        return { meta: { variables: {}, variableCollections: {} } };
+      }
+    } catch (error) {
+      Logger.log(`Failed to get library variables: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
+    return { meta: { variables: {}, variableCollections: {} } };
   }
 }
