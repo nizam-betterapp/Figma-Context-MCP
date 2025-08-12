@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { GetFileResponse, GetFileNodesResponse } from "@figma/rest-api-spec";
 import { FigmaService } from "~/services/figma.js";
 import { simplifyRawFigmaObject, allExtractors } from "~/extractors/index.js";
+import { resolveVariablesInDesign } from "~/utils/variable-resolver.js";
 import yaml from "js-yaml";
 import { Logger, writeLogs } from "~/utils/logger.js";
 
@@ -57,11 +58,14 @@ async function getFigmaData(
     const variableCollections = variablesResponse?.meta?.variableCollections || {};
 
     // Use unified design extraction (handles nodes + components consistently)
-    const simplifiedDesign = simplifyRawFigmaObject(rawApiResponse, allExtractors, {
+    let simplifiedDesign = simplifyRawFigmaObject(rawApiResponse, allExtractors, {
       maxDepth: depth,
       variables,
       variableCollections,
     });
+
+    // Post-process to resolve variable names
+    simplifiedDesign = await resolveVariablesInDesign(simplifiedDesign, variables, variableCollections);
 
     writeLogs("figma-simplified.json", simplifiedDesign);
 

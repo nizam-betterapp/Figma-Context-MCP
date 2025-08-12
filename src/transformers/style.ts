@@ -102,7 +102,7 @@ export type SimplifiedFill =
   | SimplifiedPatternFill
   | CSSRGBAColor
   | CSSHexColor
-  | { value: SimplifiedFill; variable: string };
+  | { value: SimplifiedFill; variable: string; variableId?: string };
 
 export type SimplifiedStroke = {
   colors: SimplifiedFill[];

@@ -85,13 +85,7 @@ function resolveVariableName(
     return name;
   }
   
-  // Second, try to resolve from known mappings
-  const mappedName = resolveVariableFromMapping(variableId);
-  if (mappedName) {
-    return mappedName;
-  }
-  
-  // Finally, format the variable ID nicely
+  // For now, just format the ID - async resolution will happen at a higher level
   return formatVariableReference(variableId);
 }
 
@@ -123,10 +117,11 @@ export const visualsExtractor: ExtractorFn = (node, result, context) => {
         const variableName = resolveVariableName(variableBinding.id, context.variables, context.variableCollections);
         
         if (variableName) {
-          // Return an object with both the parsed value and the variable name
+          // Return an object with the parsed value, variable name, and original ID
           return {
             value: parsedFill,
             variable: variableName,
+            variableId: variableBinding.id,
           };
         }
       }
@@ -151,6 +146,7 @@ export const visualsExtractor: ExtractorFn = (node, result, context) => {
               return {
                 value: color,
                 variable: variableName,
+                variableId: boundVar.id,
               };
             }
           }
