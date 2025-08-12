@@ -35,41 +35,20 @@ export async function resolveVariablesInDesign(
   
   for (const varId of variableIds) {
     // Extract the actual ID from formatted references like "Variable[54:6]"
-    let cleanId = varId;
+    let variableIdForLookup = varId;
+    
     if (varId.startsWith("Variable[") && varId.endsWith("]")) {
-      cleanId = "VariableID:" + varId.slice(9, -1);
-    } else if (varId.startsWith("Variable:")) {
-      cleanId = varId.replace("Variable:", "");
+      // Format is Variable[XX:YY] - extract the XX:YY part and format as VariableID:XX:YY
+      const idPart = varId.slice(9, -1);
+      variableIdForLookup = `VariableID:${idPart}`;
     }
     
-    Logger.log(`Attempting to resolve: ${varId} (clean: ${cleanId})`);
-    
-    // Try API response first
-    let resolvedName: string | null = null;
-    if (variables && variables[cleanId]) {
-      const variable = variables[cleanId];
-      resolvedName = variable.name;
-      
-      if (variable.variableCollectionId && variableCollections) {
-        const collection = variableCollections[variable.variableCollectionId];
-        if (collection && collection.name) {
-          resolvedName = `${collection.name}/${resolvedName}`;
-        }
-      }
-      Logger.log(`Resolved from API: ${cleanId} -> ${resolvedName}`);
-    }
-    
-    // Try mapping resolution if API didn't work
-    if (!resolvedName) {
-      resolvedName = await resolveVariableFromMapping(cleanId);
-      if (resolvedName) {
-        Logger.log(`Resolved from mapping: ${cleanId} -> ${resolvedName}`);
-      }
-    }
+    // Simply resolve from our design_system_tokens.json mappings
+    const resolvedName = await resolveVariableFromMapping(variableIdForLookup);
     
     if (resolvedName) {
       resolutions.set(varId, resolvedName);
-      Logger.log(`Final resolution: ${varId} -> ${resolvedName}`);
+      Logger.log(`Resolved: ${varId} -> ${resolvedName}`);
     } else {
       Logger.log(`Could not resolve: ${varId}`);
     }
@@ -123,8 +102,11 @@ function applyResolutions(data: any, resolutions: Map<string, string>): void {
       if (item && typeof item === 'object' && 'variable' in item) {
         const resolved = resolutions.get(item.variable);
         if (resolved) {
-          // Keep the original variable ID if it doesn't exist yet
-          if (!item.variableId && item.variable.startsWith('Variable')) {
+          // Keep the original variable ID - convert Variable[XX:YY] to VariableID:XX:YY
+          if (!item.variableId && item.variable.startsWith('Variable[')) {
+            const idPart = item.variable.slice(9, -1); // Extract XX:YY from Variable[XX:YY]
+            item.variableId = `VariableID:${idPart}`;
+          } else if (!item.variableId) {
             item.variableId = item.variable;
           }
           item.variable = resolved;
@@ -137,8 +119,11 @@ function applyResolutions(data: any, resolutions: Map<string, string>): void {
     if ('variable' in data) {
       const resolved = resolutions.get(data.variable);
       if (resolved) {
-        // Keep the original variable ID if it doesn't exist yet
-        if (!data.variableId && data.variable.startsWith('Variable')) {
+        // Keep the original variable ID - convert Variable[XX:YY] to VariableID:XX:YY
+        if (!data.variableId && data.variable.startsWith('Variable[')) {
+          const idPart = data.variable.slice(9, -1); // Extract XX:YY from Variable[XX:YY]
+          data.variableId = `VariableID:${idPart}`;
+        } else if (!data.variableId) {
           data.variableId = data.variable;
         }
         data.variable = resolved;

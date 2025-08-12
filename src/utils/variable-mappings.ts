@@ -1,14 +1,12 @@
 /**
- * Variable mappings for known design systems
+ * Variable mappings from design system tokens
  * 
- * This file handles fetching and caching of Figma variable mappings
- * from remote sources or configuration files.
+ * This file parses the design_system_tokens.json file to extract
+ * Figma variable ID to semantic name mappings.
  */
 
 import { Logger } from "~/utils/logger.js";
 import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 
 export interface VariableMapping {
   id: string;
@@ -16,179 +14,165 @@ export interface VariableMapping {
   description?: string;
 }
 
-// Cache for fetched mappings
+// Cache for parsed mappings
 let cachedMappings: VariableMapping[] | null = null;
-let cacheTimestamp: number = 0;
-let fileWatchTimestamp: number = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes for remote mappings
-const FILE_CHECK_INTERVAL = 10 * 1000; // Check local file every 10 seconds
+let lastModTime: number = 0;
 
 /**
- * Fetch variable mappings from a remote source
+ * Convert string to camelCase
  */
-async function fetchRemoteMappings(url?: string): Promise<VariableMapping[]> {
-  if (!url) {
-    // Check environment variable for mapping URL
-    url = process.env.FIGMA_VARIABLE_MAPPINGS_URL;
-    if (!url) {
-      return [];
+function toCamelCase(str: string): string {
+  // Split by spaces, hyphens, or underscores
+  const words = str.split(/[\s-_]+/);
+  
+  // Convert to camelCase
+  return words.map((word, index) => {
+    if (index === 0) {
+      return word.toLowerCase();
     }
-  }
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  }).join('');
+}
 
+/**
+ * Parse design system tokens file format
+ */
+function parseDesignSystemTokens(content: string): VariableMapping[] {
   try {
-    Logger.log(`Fetching variable mappings from: ${url}`);
-    const response = await fetch(url);
-    if (!response.ok) {
-      Logger.log(`Failed to fetch mappings: ${response.status}`);
-      return [];
+    const tokens = JSON.parse(content);
+    const mappings: VariableMapping[] = [];
+    
+    // Recursive function to extract variable mappings
+    function extractMappings(obj: any, path: string[] = []) {
+      if (!obj || typeof obj !== 'object') return;
+      
+      for (const [key, value] of Object.entries(obj)) {
+        const currentPath = [...path, key];
+        
+        // Check if this object has a variableId in extensions
+        if (value && typeof value === 'object') {
+          const extensions = (value as any).extensions;
+          if (extensions?.['org.lukasoppermann.figmaDesignTokens']?.variableId) {
+            const variableId = extensions['org.lukasoppermann.figmaDesignTokens'].variableId;
+            const collection = extensions['org.lukasoppermann.figmaDesignTokens'].collection || '';
+            const type = (value as any).type || '';
+            
+            // Build the semantic name from the path
+            let pathElements = [...currentPath];
+            
+            // Check if the first part of the path is a lowercase version of the collection name
+            // This handles cases where the JSON has keys like "semantic tokens" but the collection is "Semantic Tokens"
+            if (collection && pathElements[0]) {
+              const firstPathNormalized = pathElements[0].toLowerCase().replace(/\s+/g, '');
+              const collectionNormalized = collection.toLowerCase().replace(/\s+/g, '');
+              
+              if (firstPathNormalized === collectionNormalized) {
+                // Remove the redundant prefix from the path
+                pathElements = pathElements.slice(1);
+              }
+            }
+            
+            // Determine the prefix based on type or collection
+            let prefix = '';
+            if (type === 'color' || collection === 'Semantic Tokens') {
+              prefix = 'RegainColors';
+            } else if (type === 'dimension') {
+              prefix = 'Dimensions';
+            } else if (type === 'custom-fontStyle') {
+              prefix = 'Typography';
+            } else if (collection) {
+              // Use collection name as prefix for other types
+              prefix = collection.replace(/\s+/g, '');
+            }
+            
+            // Convert path elements to camelCase and join with dots
+            const camelCasePath = pathElements.map((elem, index) => {
+              if (index === 0) {
+                return elem.toLowerCase();
+              }
+              return toCamelCase(elem);
+            }).join('.');
+            
+            // Build final name
+            const name = prefix ? `${prefix}.${camelCasePath}` : camelCasePath;
+            
+            mappings.push({
+              id: variableId,
+              name: name,
+              description: (value as any).description || ''
+            });
+          }
+          
+          // Continue recursion
+          extractMappings(value, currentPath);
+        }
+      }
     }
     
-    const data = await response.json();
-    if (Array.isArray(data)) {
-      return data;
-    } else if (data.mappings && Array.isArray(data.mappings)) {
-      return data.mappings;
-    }
-    
-    Logger.log("Invalid mapping format from remote source");
-    return [];
+    extractMappings(tokens);
+    return mappings;
   } catch (error) {
-    Logger.log(`Error fetching remote mappings: ${error instanceof Error ? error.message : String(error)}`);
+    Logger.log(`Error parsing design system tokens: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
 
-// Track file modification times
-const fileModTimes = new Map<string, number>();
-
 /**
- * Get variable mappings from local configuration file
+ * Get variable mappings from design system tokens file
  */
 function getLocalMappings(): VariableMapping[] {
-  // Get directory path for ES modules
-  let currentDir = '';
+  const designSystemTokensPath = '/Users/nizamsp/regainapp.ai-worktrees/mcp_with_colors/design_system_tokens.json';
+  
   try {
-    currentDir = path.dirname(fileURLToPath(import.meta.url));
-  } catch {
-    // Fallback if import.meta.url is not available
-    currentDir = process.cwd();
-  }
-  
-  const possiblePaths = [
-    // Current working directory
-    path.join(process.cwd(), '.figma-variables.json'),
-    // User's home directory
-    path.join(process.env.HOME || '', '.figma-variables.json'),
-    // Package installation directory (ES module way)
-    path.join(currentDir, '..', '..', '.figma-variables.json'),
-  ];
-
-  for (const configPath of possiblePaths) {
-    try {
-      if (fs.existsSync(configPath)) {
-        // Check if file has been modified
-        const stats = fs.statSync(configPath);
-        const lastMod = stats.mtimeMs;
-        const cachedMod = fileModTimes.get(configPath);
-        
-        if (cachedMod && cachedMod !== lastMod) {
-          Logger.log(`Config file modified, reloading: ${configPath}`);
-          cachedMappings = null; // Force cache refresh
-        }
-        fileModTimes.set(configPath, lastMod);
-        
-        const content = fs.readFileSync(configPath, 'utf-8');
-        const config = JSON.parse(content);
-        
-        if (config.variableMappings && Array.isArray(config.variableMappings)) {
-          Logger.log(`Loaded ${config.variableMappings.length} mappings from: ${configPath}`);
-          if (config.lastSynced) {
-            Logger.log(`Last synced: ${config.lastSynced}`);
-          }
-          return config.variableMappings;
-        }
+    if (fs.existsSync(designSystemTokensPath)) {
+      // Check if file has been modified
+      const stats = fs.statSync(designSystemTokensPath);
+      
+      if (stats.mtimeMs !== lastModTime) {
+        Logger.log(`Design system tokens file modified, reloading...`);
+        cachedMappings = null; // Force cache refresh
+        lastModTime = stats.mtimeMs;
       }
-    } catch (error) {
-      // Continue to next path
+      
+      if (cachedMappings) {
+        return cachedMappings;
+      }
+      
+      const content = fs.readFileSync(designSystemTokensPath, 'utf-8');
+      const mappings = parseDesignSystemTokens(content);
+      Logger.log(`Loaded ${mappings.length} mappings from design system tokens`);
+      cachedMappings = mappings;
+      return mappings;
     }
+  } catch (error) {
+    Logger.log(`Error loading design system tokens: ${error instanceof Error ? error.message : String(error)}`);
   }
   
-  Logger.log('No local variable mappings file found');
+  Logger.log('Design system tokens file not found');
   return [];
 }
 
 /**
- * Get all variable mappings (cached with auto-refresh)
+ * Get all variable mappings
  */
 export async function getVariableMappings(): Promise<VariableMapping[]> {
-  const now = Date.now();
-  
-  // Check if we should refresh based on time or file changes
-  const shouldRefreshRemote = !cachedMappings || (now - cacheTimestamp > CACHE_DURATION);
-  const shouldCheckLocal = !cachedMappings || (now - fileWatchTimestamp > FILE_CHECK_INTERVAL);
-  
-  if (!shouldRefreshRemote && !shouldCheckLocal && cachedMappings) {
-    return cachedMappings;
-  }
-  
-  // Update file check timestamp
-  if (shouldCheckLocal) {
-    fileWatchTimestamp = now;
-  }
-  
-  // Fetch fresh mappings
-  const mappings: VariableMapping[] = [];
-  
-  // 1. Try remote source if needed
-  if (shouldRefreshRemote) {
-    const remoteMappings = await fetchRemoteMappings();
-    mappings.push(...remoteMappings);
-  } else if (cachedMappings) {
-    // Keep existing remote mappings
-    const existingRemote = cachedMappings.filter(m => !m.fromLocal);
-    mappings.push(...existingRemote);
-  }
-  
-  // 2. Always check local mappings (they might have changed)
-  const localMappings = getLocalMappings();
-  // Mark them as local so we can distinguish them
-  localMappings.forEach(m => (m as any).fromLocal = true);
-  mappings.push(...localMappings);
-  
-  // Update cache only if there are changes
-  if (!cachedMappings || mappings.length !== cachedMappings.length || 
-      JSON.stringify(mappings) !== JSON.stringify(cachedMappings)) {
-    cachedMappings = mappings;
-    cacheTimestamp = now;
-    Logger.log(`Mappings updated: ${mappings.length} total`);
-  }
-  
-  return mappings;
+  return getLocalMappings();
 }
 
 /**
  * Resolve a variable ID to its semantic name using mappings
  */
 export async function resolveVariableFromMapping(
-  variableId: string,
-  customMappings?: VariableMapping[]
+  variableId: string
 ): Promise<string | null> {
-  // Clean the variable ID (remove VariableID: prefix if present)
-  const cleanId = variableId.replace('VariableID:', '');
+  // Ensure the ID is in the correct format (VariableID:XX:YY)
   const fullId = variableId.startsWith('VariableID:') ? variableId : `VariableID:${variableId}`;
   
-  // Check custom mappings first (if provided inline)
-  if (customMappings) {
-    const customMapping = customMappings.find(m => m.id === fullId || m.id === cleanId);
-    if (customMapping) return customMapping.name;
-  }
-  
-  // Get all available mappings (remote + local)
+  // Get all available mappings from design system tokens
   const allMappings = await getVariableMappings();
-  const mapping = allMappings.find(m => m.id === fullId || m.id === cleanId);
-  if (mapping) return mapping.name;
+  const mapping = allMappings.find(m => m.id === fullId);
   
-  return null;
+  return mapping ? mapping.name : null;
 }
 
 /**
