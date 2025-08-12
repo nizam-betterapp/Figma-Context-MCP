@@ -26,6 +26,8 @@ export function extractFromDesign(
   const context: TraversalContext = {
     globalVars,
     currentDepth: 0,
+    variables: options.variables,
+    variableCollections: options.variableCollections,
   };
 
   const processedNodes = nodes

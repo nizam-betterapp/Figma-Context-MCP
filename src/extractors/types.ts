@@ -26,11 +26,15 @@ export interface TraversalContext {
   globalVars: GlobalVars;
   currentDepth: number;
   parent?: FigmaDocumentNode;
+  variables?: Record<string, any>;
+  variableCollections?: Record<string, any>;
 }
 
 export interface TraversalOptions {
   maxDepth?: number;
   nodeFilter?: (node: FigmaDocumentNode) => boolean;
+  variables?: Record<string, any>;
+  variableCollections?: Record<string, any>;
 }
 
 /**

@@ -101,7 +101,8 @@ export type SimplifiedFill =
   | SimplifiedGradientFill
   | SimplifiedPatternFill
   | CSSRGBAColor
-  | CSSHexColor;
+  | CSSHexColor
+  | { value: SimplifiedFill; variable: string };
 
 export type SimplifiedStroke = {
   colors: SimplifiedFill[];

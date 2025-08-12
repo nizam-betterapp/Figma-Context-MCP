@@ -59,22 +59,102 @@ export const textExtractor: ExtractorFn = (node, result, context) => {
 };
 
 /**
+ * Helper function to resolve variable names from boundVariables
+ */
+function resolveVariableName(
+  variableId: string,
+  variables: Record<string, any> | undefined,
+  variableCollections: Record<string, any> | undefined,
+): string | null {
+  if (!variableId) return null;
+  
+  // If we have variables metadata, use it
+  if (variables && variables[variableId]) {
+    const variable = variables[variableId];
+    let name = variable.name;
+    
+    // If the variable belongs to a collection, prepend the collection name
+    if (variable.variableCollectionId && variableCollections) {
+      const collection = variableCollections[variable.variableCollectionId];
+      if (collection && collection.name) {
+        // Format as "CollectionName/VariableName" to match Figma's display
+        name = `${collection.name}/${name}`;
+      }
+    }
+    return name;
+  }
+  
+  // Fallback: use the variable ID itself as a placeholder
+  // This helps identify that a variable is being used even if we can't resolve its name
+  return `Variable:${variableId}`;
+}
+
+/**
  * Extracts visual appearance properties (fills, strokes, effects, opacity, border radius).
  */
 export const visualsExtractor: ExtractorFn = (node, result, context) => {
   // Check if node has children to determine CSS properties
   const hasChildren = hasValue("children", node) && Array.isArray(node.children) && node.children.length > 0;
   
-  // fills
+  // fills with variable resolution
   if (hasValue("fills", node) && Array.isArray(node.fills) && node.fills.length) {
-    const fills = node.fills.map((fill) => parsePaint(fill, hasChildren));
+    const fills = node.fills.map((fill, index) => {
+      const parsedFill = parsePaint(fill, hasChildren);
+      
+      // Check if this fill has a bound variable (can be in two places)
+      let variableBinding = null;
+      
+      // 1. Check node-level boundVariables.fills
+      if ((node as any).boundVariables?.fills?.[index]) {
+        variableBinding = (node as any).boundVariables.fills[index];
+      }
+      // 2. Check fill-level boundVariables.color
+      else if (fill.type === 'SOLID' && (fill as any).boundVariables?.color) {
+        variableBinding = (fill as any).boundVariables.color;
+      }
+      
+      if (variableBinding && variableBinding.id) {
+        const variableName = resolveVariableName(variableBinding.id, context.variables, context.variableCollections);
+        
+        if (variableName) {
+          // Return an object with both the parsed value and the variable name
+          return {
+            value: parsedFill,
+            variable: variableName,
+          };
+        }
+      }
+      
+      return parsedFill;
+    });
     result.fills = findOrCreateVar(context.globalVars, fills, "fill");
   }
 
-  // strokes
+  // strokes with variable resolution
   const strokes = buildSimplifiedStrokes(node, hasChildren);
   if (strokes.colors.length) {
-    result.strokes = findOrCreateVar(context.globalVars, strokes, "stroke");
+    // Check for stroke variable bindings
+    if ((node as any).boundVariables?.strokes) {
+      const strokesWithVariables = {
+        ...strokes,
+        colors: strokes.colors.map((color, index) => {
+          const boundVar = (node as any).boundVariables.strokes?.[index];
+          if (boundVar) {
+            const variableName = resolveVariableName(boundVar.id, context.variables, context.variableCollections);
+            if (variableName) {
+              return {
+                value: color,
+                variable: variableName,
+              };
+            }
+          }
+          return color;
+        }),
+      };
+      result.strokes = findOrCreateVar(context.globalVars, strokesWithVariables, "stroke");
+    } else {
+      result.strokes = findOrCreateVar(context.globalVars, strokes, "stroke");
+    }
   }
 
   // effects

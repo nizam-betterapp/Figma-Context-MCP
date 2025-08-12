@@ -51,9 +51,16 @@ async function getFigmaData(
       rawApiResponse = await figmaService.getRawFile(fileKey, depth);
     }
 
+    // Fetch variables from the file
+    const variablesResponse = await figmaService.getLocalVariables(fileKey);
+    const variables = variablesResponse?.meta?.variables || {};
+    const variableCollections = variablesResponse?.meta?.variableCollections || {};
+
     // Use unified design extraction (handles nodes + components consistently)
     const simplifiedDesign = simplifyRawFigmaObject(rawApiResponse, allExtractors, {
       maxDepth: depth,
+      variables,
+      variableCollections,
     });
 
     writeLogs("figma-simplified.json", simplifiedDesign);

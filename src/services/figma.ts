@@ -286,4 +286,22 @@ export class FigmaService {
 
     return response;
   }
+
+  /**
+   * Get local variables from a Figma file
+   */
+  async getLocalVariables(fileKey: string): Promise<any> {
+    const endpoint = `/files/${fileKey}/variables/local`;
+    Logger.log(`Retrieving local variables from file: ${fileKey}`);
+    
+    try {
+      const response = await this.request<any>(endpoint);
+      writeLogs("figma-variables.json", response);
+      return response;
+    } catch (error) {
+      Logger.log(`Failed to fetch variables: ${error instanceof Error ? error.message : String(error)}`);
+      // Return empty response if variables endpoint fails (might not be available for all files)
+      return { meta: { variables: {}, variableCollections: {} } };
+    }
+  }
 }
