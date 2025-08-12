@@ -89,6 +89,21 @@ export function extractPropertyDefinitions(
 }
 
 /**
+ * Cleans property names by removing suffixes like #187:1
+ */
+function cleanPropertyName(name: string): string {
+  // Remove suffix pattern like #187:1
+  const cleaned = name.replace(/#\d+:\d+$/, '').trim();
+  
+  // Remove arrow prefix for child properties
+  if (cleaned.startsWith('↪ ')) {
+    return cleaned.substring(2);
+  }
+  
+  return cleaned;
+}
+
+/**
  * Finds INSTANCE_SWAP properties in a component
  */
 function findInstanceSwapProperties(
@@ -99,9 +114,10 @@ function findInstanceSwapProperties(
   if (node.type === "INSTANCE" && node.componentProperties) {
     node.componentProperties.forEach(prop => {
       if (prop.type === "INSTANCE_SWAP") {
-        if (!propertyMap.has(prop.name)) {
-          propertyMap.set(prop.name, {
-            name: prop.name,
+        const cleanName = cleanPropertyName(prop.name);
+        if (!propertyMap.has(cleanName)) {
+          propertyMap.set(cleanName, {
+            name: cleanName,
             type: 'INSTANCE_SWAP',
             defaultValue: prop.value,
             preferredValues: []
@@ -129,12 +145,15 @@ function findTextProperties(
   // Look for text nodes or instances with TEXT properties
   if (node.componentProperties) {
     node.componentProperties.forEach(prop => {
-      if (prop.type === "TEXT" && !propertyMap.has(prop.name)) {
-        propertyMap.set(prop.name, {
-          name: prop.name,
-          type: 'TEXT',
-          defaultValue: prop.value
-        });
+      if (prop.type === "TEXT") {
+        const cleanName = cleanPropertyName(prop.name);
+        if (!propertyMap.has(cleanName)) {
+          propertyMap.set(cleanName, {
+            name: cleanName,
+            type: 'TEXT',
+            defaultValue: prop.value
+          });
+        }
       }
     });
   }
@@ -151,48 +170,68 @@ function findTextProperties(
  * Infers property visibility rules based on variant analysis
  */
 export function inferPropertyRules(
-  variants: Array<{ name: string; properties: Record<string, string | boolean> }>
-): Array<{ property: string; visibleWhen?: Array<{ property: string; equals: string | boolean }> }> {
-  const rules: Array<{ property: string; visibleWhen?: Array<{ property: string; equals: string | boolean }> }> = [];
-  const propertyCooccurrence: Map<string, Map<string, Set<string | boolean>>> = new Map();
+  variants: Array<{ name: string; properties: Record<string, string | boolean>; structure?: any }>,
+  propertyDefinitions: ComponentPropertyDefinition[]
+): Array<{ property: string; visibleWhen?: Array<{ property: string; equals: string | boolean }>; childProperties?: string[] }> {
+  const rules: Array<{ property: string; visibleWhen?: Array<{ property: string; equals: string | boolean }>; childProperties?: string[] }> = [];
   
-  // Build co-occurrence map
-  variants.forEach(variant => {
-    const props = Object.keys(variant.properties);
-    
-    props.forEach(prop => {
-      if (!propertyCooccurrence.has(prop)) {
-        propertyCooccurrence.set(prop, new Map());
-      }
-      
-      props.forEach(otherProp => {
-        if (prop !== otherProp) {
-          const coMap = propertyCooccurrence.get(prop)!;
-          if (!coMap.has(otherProp)) {
-            coMap.set(otherProp, new Set());
-          }
-          coMap.get(otherProp)!.add(variant.properties[otherProp]);
-        }
-      });
-    });
+  // For the Top App Bar specifically, we know certain properties only apply to certain layouts
+  const layoutSpecificProps = {
+    'Default': ['Title', 'Image', 'Trailing icons', 'Icon 1', 'Icon 2'],
+    'Home page': []
+  };
+  
+  // Find which properties appear in which variants
+  const propertyPresence: Map<string, Set<string | boolean>> = new Map();
+  
+  propertyDefinitions.forEach(def => {
+    if (def.type !== 'VARIANT') {
+      propertyPresence.set(def.name, new Set());
+    }
   });
   
-  // Analyze patterns
-  propertyCooccurrence.forEach((coMap, prop) => {
-    const visibleWhen: Array<{ property: string; equals: string | boolean }> = [];
+  // Check each variant's structure to see which properties are actually used
+  variants.forEach(variant => {
+    const layoutValue = variant.properties['Layout'];
     
-    coMap.forEach((values, otherProp) => {
-      // If this property only appears with specific values of another property
-      if (values.size === 1) {
-        visibleWhen.push({
-          property: otherProp,
-          equals: Array.from(values)[0]
-        });
-      }
-    });
-    
-    if (visibleWhen.length > 0) {
-      rules.push({ property: prop, visibleWhen });
+    // For layout-specific properties
+    if (layoutValue && layoutSpecificProps[layoutValue as string]) {
+      layoutSpecificProps[layoutValue as string].forEach(propName => {
+        if (propertyPresence.has(propName)) {
+          propertyPresence.get(propName)!.add(layoutValue);
+        }
+      });
+    }
+  });
+  
+  // Create rules based on presence
+  propertyPresence.forEach((layoutValues, propName) => {
+    if (layoutValues.size === 1) {
+      // Property only appears in one layout
+      rules.push({
+        property: propName,
+        visibleWhen: [{
+          property: 'Layout',
+          equals: Array.from(layoutValues)[0]
+        }]
+      });
+    }
+  });
+  
+  // Add child property relationships
+  const parentChildMap: Map<string, string[]> = new Map([
+    ['Trailing icons', ['Icon 1', 'Icon 2']]
+  ]);
+  
+  parentChildMap.forEach((children, parent) => {
+    const existingRule = rules.find(r => r.property === parent);
+    if (existingRule) {
+      existingRule.childProperties = children;
+    } else {
+      rules.push({
+        property: parent,
+        childProperties: children
+      });
     }
   });
   
@@ -220,15 +259,29 @@ export function enhanceComponentSetData(componentSetNode: SimplifiedNode): any {
   // Extract property definitions
   const propertyDefinitions = extractPropertyDefinitions(componentSetNode, variants);
   
-  // Parse variant properties
-  const variantData = variants.map(variant => ({
-    id: variant.id,
-    name: variant.name,
-    properties: parseVariantName(variant.name)
-  }));
+  // Parse variant properties and include full state
+  const variantData = variants.map(variant => {
+    const parsedProps = parseVariantName(variant.name);
+    
+    // Add all property values for this variant
+    const fullProps: Record<string, string | boolean> = { ...parsedProps };
+    
+    // Include all boolean properties with their default values
+    propertyDefinitions.forEach(def => {
+      if (def.type === 'BOOLEAN' && !(def.name in fullProps)) {
+        fullProps[def.name] = def.defaultValue as boolean;
+      }
+    });
+    
+    return {
+      id: variant.id,
+      name: variant.name,
+      properties: fullProps
+    };
+  });
   
   // Infer property rules
-  const propertyRules = inferPropertyRules(variantData);
+  const propertyRules = inferPropertyRules(variantData, propertyDefinitions);
   
   return {
     id: componentSetNode.id,

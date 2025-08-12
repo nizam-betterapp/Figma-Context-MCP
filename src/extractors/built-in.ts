@@ -257,8 +257,11 @@ export const componentExtractor: ExtractorFn = (node, result, context) => {
       result.componentPropertyDefinitions = Object.entries(
         (node as any).componentPropertyDefinitions
       ).map(([name, def]: [string, any]) => {
+        // Clean the property name
+        const cleanName = name.replace(/#\d+:\d+$/, '').trim().replace(/^↪\s+/, '');
+        
         const definition: any = {
-          name,
+          name: cleanName,
           type: def.type,
           defaultValue: def.defaultValue,
         };

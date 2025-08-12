@@ -207,7 +207,7 @@ function parseDesignSystemTokens(content: string): VariableMapping[] {
  * Get variable mappings from design system tokens file
  */
 function getLocalMappings(): VariableMapping[] {
-  const designSystemTokensPath = '/Users/nizamsp/regainapp.ai-worktrees/mcp_with_colors/design_system_tokens.json';
+  const designSystemTokensPath = '/Users/chitroopamanikkavasagam/regainapp.ai/app/src/main/res/raw/design_system_tokens.json';
   
   try {
     if (fs.existsSync(designSystemTokensPath)) {

@@ -38,7 +38,8 @@ export interface ComponentVariantAnalysis {
  */
 export function analyzeComponentSet(
   componentSetNode: SimplifiedNode,
-  allNodes: SimplifiedNode[]
+  allNodes: SimplifiedNode[],
+  components?: Record<string, any>
 ): ComponentVariantAnalysis | null {
   if (componentSetNode.type !== "COMPONENT_SET") {
     return null;
@@ -67,7 +68,7 @@ export function analyzeComponentSet(
   analysis.propertyRules = analyzePropertyRules(analysis.variants, componentSetNode);
   
   // Extract slot definitions
-  analysis.slotDefinitions = extractSlotDefinitions(variants);
+  analysis.slotDefinitions = extractSlotDefinitions(variants, components);
 
   return analysis;
 }
@@ -137,7 +138,7 @@ function extractVariantInfo(componentNode: SimplifiedNode): VariantInfo | null {
 /**
  * Extracts the structure/slots from a component
  */
-function extractStructure(componentNode: SimplifiedNode): SlotInfo[] {
+function extractStructure(componentNode: SimplifiedNode, components?: Record<string, any>): SlotInfo[] {
   const slots: SlotInfo[] = [];
   
   function traverseNode(node: SimplifiedNode, path: string = "") {
@@ -149,7 +150,7 @@ function extractStructure(componentNode: SimplifiedNode): SlotInfo[] {
           slot: node.name || path,
           content: `Instance swap: ${swapProp.name}`,
           nodeId: node.id,
-          accepts: extractAcceptedComponents(node)
+          accepts: extractAcceptedComponents(node, components)
         });
       }
     }
@@ -178,8 +179,12 @@ function extractStructure(componentNode: SimplifiedNode): SlotInfo[] {
 /**
  * Extract which components can be placed in an instance swap slot
  */
-function extractAcceptedComponents(instanceNode: SimplifiedNode): string[] {
+function extractAcceptedComponents(
+  instanceNode: SimplifiedNode,
+  components?: Record<string, any>
+): string[] {
   const accepted: string[] = [];
+  const acceptedNames: string[] = [];
   
   // Check for preferredValues in component properties
   if (instanceNode.componentProperties) {
@@ -188,13 +193,19 @@ function extractAcceptedComponents(instanceNode: SimplifiedNode): string[] {
         (prop as any).preferredValues.forEach((pref: any) => {
           if (pref.key) {
             accepted.push(pref.key);
+            // Try to get readable name
+            if (components && components[pref.key]) {
+              acceptedNames.push(components[pref.key].name || pref.key);
+            } else {
+              acceptedNames.push(pref.key);
+            }
           }
         });
       }
     });
   }
   
-  return accepted;
+  return acceptedNames.length > 0 ? acceptedNames : accepted;
 }
 
 /**
@@ -287,18 +298,16 @@ function analyzePropertyRules(
 /**
  * Extracts slot definitions from all variants
  */
-function extractSlotDefinitions(variants: SimplifiedNode[]): Record<string, SlotInfo> {
+function extractSlotDefinitions(variants: SimplifiedNode[], components?: Record<string, any>): Record<string, SlotInfo> {
   const slots: Record<string, SlotInfo> = {};
   
   variants.forEach(variant => {
-    const variantInfo = extractVariantInfo(variant);
-    if (variantInfo && variantInfo.structure) {
-      variantInfo.structure.forEach(slot => {
-        if (!slots[slot.slot]) {
-          slots[slot.slot] = slot;
-        }
-      });
-    }
+    const structure = extractStructure(variant, components);
+    structure.forEach(slot => {
+      if (!slots[slot.slot]) {
+        slots[slot.slot] = slot;
+      }
+    });
   });
   
   return slots;
@@ -307,12 +316,12 @@ function extractSlotDefinitions(variants: SimplifiedNode[]): Record<string, Slot
 /**
  * Analyzes all component sets in the design to extract variant information
  */
-export function analyzeAllComponentSets(nodes: SimplifiedNode[]): ComponentVariantAnalysis[] {
+export function analyzeAllComponentSets(nodes: SimplifiedNode[], components?: Record<string, any>): ComponentVariantAnalysis[] {
   const analyses: ComponentVariantAnalysis[] = [];
   
   nodes.forEach(node => {
     if (node.type === "COMPONENT_SET") {
-      const analysis = analyzeComponentSet(node, nodes);
+      const analysis = analyzeComponentSet(node, nodes, components);
       if (analysis) {
         analyses.push(analysis);
       }

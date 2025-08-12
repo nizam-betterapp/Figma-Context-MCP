@@ -81,7 +81,7 @@ async function getFigmaData(
     simplifiedDesign.nodes = enhancedNodes;
     
     // Analyze component sets to extract variant information
-    const variantAnalyses = analyzeAllComponentSets(simplifiedDesign.nodes);
+    const variantAnalyses = analyzeAllComponentSets(simplifiedDesign.nodes, simplifiedDesign.components);
     
     // Log component property definitions from nodes
     simplifiedDesign.nodes.forEach(node => {
