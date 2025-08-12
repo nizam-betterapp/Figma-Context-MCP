@@ -19,7 +19,9 @@ export interface VariableMapping {
 // Cache for fetched mappings
 let cachedMappings: VariableMapping[] | null = null;
 let cacheTimestamp: number = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+let fileWatchTimestamp: number = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes for remote mappings
+const FILE_CHECK_INTERVAL = 10 * 1000; // Check local file every 10 seconds
 
 /**
  * Fetch variable mappings from a remote source
@@ -56,6 +58,9 @@ async function fetchRemoteMappings(url?: string): Promise<VariableMapping[]> {
   }
 }
 
+// Track file modification times
+const fileModTimes = new Map<string, number>();
+
 /**
  * Get variable mappings from local configuration file
  */
@@ -81,11 +86,25 @@ function getLocalMappings(): VariableMapping[] {
   for (const configPath of possiblePaths) {
     try {
       if (fs.existsSync(configPath)) {
+        // Check if file has been modified
+        const stats = fs.statSync(configPath);
+        const lastMod = stats.mtimeMs;
+        const cachedMod = fileModTimes.get(configPath);
+        
+        if (cachedMod && cachedMod !== lastMod) {
+          Logger.log(`Config file modified, reloading: ${configPath}`);
+          cachedMappings = null; // Force cache refresh
+        }
+        fileModTimes.set(configPath, lastMod);
+        
         const content = fs.readFileSync(configPath, 'utf-8');
         const config = JSON.parse(content);
         
         if (config.variableMappings && Array.isArray(config.variableMappings)) {
           Logger.log(`Loaded ${config.variableMappings.length} mappings from: ${configPath}`);
+          if (config.lastSynced) {
+            Logger.log(`Last synced: ${config.lastSynced}`);
+          }
           return config.variableMappings;
         }
       }
@@ -99,30 +118,51 @@ function getLocalMappings(): VariableMapping[] {
 }
 
 /**
- * Get all variable mappings (cached)
+ * Get all variable mappings (cached with auto-refresh)
  */
 export async function getVariableMappings(): Promise<VariableMapping[]> {
-  // Check cache
-  if (cachedMappings && Date.now() - cacheTimestamp < CACHE_DURATION) {
+  const now = Date.now();
+  
+  // Check if we should refresh based on time or file changes
+  const shouldRefreshRemote = !cachedMappings || (now - cacheTimestamp > CACHE_DURATION);
+  const shouldCheckLocal = !cachedMappings || (now - fileWatchTimestamp > FILE_CHECK_INTERVAL);
+  
+  if (!shouldRefreshRemote && !shouldCheckLocal && cachedMappings) {
     return cachedMappings;
+  }
+  
+  // Update file check timestamp
+  if (shouldCheckLocal) {
+    fileWatchTimestamp = now;
   }
   
   // Fetch fresh mappings
   const mappings: VariableMapping[] = [];
   
-  // 1. Try remote source first
-  const remoteMappings = await fetchRemoteMappings();
-  mappings.push(...remoteMappings);
+  // 1. Try remote source if needed
+  if (shouldRefreshRemote) {
+    const remoteMappings = await fetchRemoteMappings();
+    mappings.push(...remoteMappings);
+  } else if (cachedMappings) {
+    // Keep existing remote mappings
+    const existingRemote = cachedMappings.filter(m => !m.fromLocal);
+    mappings.push(...existingRemote);
+  }
   
-  // 2. Add local mappings
+  // 2. Always check local mappings (they might have changed)
   const localMappings = getLocalMappings();
+  // Mark them as local so we can distinguish them
+  localMappings.forEach(m => (m as any).fromLocal = true);
   mappings.push(...localMappings);
   
-  // Update cache
-  cachedMappings = mappings;
-  cacheTimestamp = Date.now();
+  // Update cache only if there are changes
+  if (!cachedMappings || mappings.length !== cachedMappings.length || 
+      JSON.stringify(mappings) !== JSON.stringify(cachedMappings)) {
+    cachedMappings = mappings;
+    cacheTimestamp = now;
+    Logger.log(`Mappings updated: ${mappings.length} total`);
+  }
   
-  Logger.log(`Total mappings available: ${mappings.length}`);
   return mappings;
 }
 
